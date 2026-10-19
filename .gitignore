@@ -1,0 +1,39 @@
+# 가상환경
+venv/
+.venv/
+env/
+
+# 파이썬 캐시
+__pycache__/
+*.py[cod]
+
+# 비밀번호·API 키 설정 파일
+secrets.json
+!secrets.example.json
+
+# 테스트·코드 검사 캐시
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# 빌드 결과
+build/
+dist/
+*.egg-info/
+
+# 로그
+*.log
+
+# IDE 개인 설정
+.idea/
+.vscode/
+
+# 운영체제 파일
+.DS_Store
+Thumbs.db
+
+# 크롤링으로 다운로드한 이미지
+images/

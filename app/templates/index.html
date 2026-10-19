@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>{{title}}</title>
+        <link href="https://unpkg.com/mvp.css" rel="stylesheet" />
+        <style>
+            section {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>이미지 콜렉터</h1>
+            <center>
+                <form id="search_form" action="/search">
+                    <input
+                        type="search"
+                        placeholder="keyword"
+                        id="search_input"
+                        name="q"
+                    />
+                    <button type="submit">검색</button>
+                </form>
+            </center>
+        </header>
+        <main>
+            {% if images %}
+            <center>
+                <h3 style="color: gray">{{ images | length }}개 데이터 수집..</h3>
+            </center>
+            <section>
+                {% for image in images %}
+                <div>
+                    <img src="{{ image.image }}" referrerpolicy="no-referrer" width="150px" height="200px" />
+                    <p>
+                        {% if image.title | length > 10 %}
+                            {{ image.title[:10] }}...
+                        {% else %}
+                            {{ image.title }}
+                        {% endif %}
+                    </p>
+                </div>
+                {% endfor %}
+            </section>
+
+            {% else %}
+            <center><h3 style="color: gray">키워드를 입력하세요!</h3></center>
+            {% endif %}
+        </main>
+    </body>
+</html>
