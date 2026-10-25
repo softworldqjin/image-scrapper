@@ -32,6 +32,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          
+      - name: Set up Python for Azure CLI
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install isolated Azure CLI
+        run: |
+          python -m venv "$RUNNER_TEMP/azure-cli"
+          "$RUNNER_TEMP/azure-cli/bin/python" -m pip install \
+            "azure-cli==2.91.0"
+          echo "$RUNNER_TEMP/azure-cli/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/azure-cli/bin/az" --version
 
       - name: Login to Azure
         id: azure-login
