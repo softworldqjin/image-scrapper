@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          
+
       - name: Set up Python for Azure CLI
         uses: actions/setup-python@v5
         with:
@@ -163,7 +163,7 @@ jobs:
           sudo -n docker compose -p image-collector up \
             -d --wait --wait-timeout 180 kafka redis mongodb
 
-          sudo -n docker compose -p image-collector exec -T kafka \
+          sudo -n docker compose -p image-collector exec -T --interactive=false kafka \
             /opt/kafka/bin/kafka-topics.sh \
             --bootstrap-server kafka:29092 \
             --create \
