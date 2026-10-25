@@ -1,5 +1,3 @@
-# Image Collector
-
 **FastAPI · Kafka · Redis · MongoDB 기반 비동기 이미지 수집 시스템**
 
 교양 수업에서 작성한 순차 실행 방식의 웹 크롤링 프로젝트를 출발점으로, 외부 API 기반 이미지 수집과 비동기 처리 구조를 적용했습니다.
