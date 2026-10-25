@@ -6,5 +6,6 @@ class ImageModel(Model):
     keyword: str
     title: str
     image: str
+    job_id: str | None = None
 
     model_config = {"collection": "images"}

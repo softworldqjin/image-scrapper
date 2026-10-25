@@ -1,3 +1,8 @@
+.env
+.env.*
+!.env.example
+*.pem
+
 # 가상환경
 venv/
 .venv/

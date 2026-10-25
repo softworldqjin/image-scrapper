@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -11,22 +12,32 @@ def get_secret(
     default_value: Optional[str] = None,
     json_path: str = str(BASE_DIR / "secrets.json"),
 ):
-    with open(json_path) as f:
-        secrets = json.loads(f.read())
-    try:
-        return secrets[key]
-    except KeyError:
-        if default_value:
-            return default_value
-        raise EnvironmentError(f"Set the {key} environment variable.")
+
+    value = os.getenv(key)
+    if value is not None:
+        return value
+
+    path = Path(json_path)
+
+    if path.exists():
+        with path.open(encoding="utf-8") as f:
+            secrets = json.load(f)
+
+        if key in secrets:
+            return secrets[key]
+
+    if default_value is not None:
+        return default_value
+
+    raise EnvironmentError(f"설정이 필요합니다: {key}")
 
 
 MONGO_DB_NAME = get_secret("MONGO_DB_NAME")
 MONGO_URL = get_secret("MONGO_URL")
+
 NAVER_API_ID = get_secret("NAVER_API_ID")
 NAVER_API_SECRET = get_secret("NAVER_API_SECRET")
 
+KAFKA_BOOTSTRAP_SERVERS = get_secret("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
-if __name__ == "__main__":
-    world = get_secret("hello")
-    print(world)
+REDIS_URL = get_secret("REDIS_URL", "redis://localhost:6379/0")
