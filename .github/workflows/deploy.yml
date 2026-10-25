@@ -1,0 +1,187 @@
+name: Deploy to Azure VM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: azure-vm-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      RESOURCE_GROUP: image-collector-rg
+      NSG_NAME: image-collector-vm-nsg
+      NSG_RULE: github-actions-ssh
+      NSG_PRIORITY: "1100"
+      VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+      VM_USER: ${{ secrets.AZURE_VM_USER }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Login to Azure
+        id: azure-login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AZURE_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host deploy-vm
+            HostName $VM_HOST
+            User $VM_USER
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ConnectTimeout 10
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Allow runner SSH access
+        run: |
+          RUNNER_IP=$(curl -4fsS --retry 3 https://api.ipify.org)
+
+          python -c \
+            'import ipaddress, sys; ipaddress.IPv4Address(sys.argv[1])' \
+            "$RUNNER_IP"
+
+          az network nsg rule create \
+            --resource-group "$RESOURCE_GROUP" \
+            --nsg-name "$NSG_NAME" \
+            --name "$NSG_RULE" \
+            --priority "$NSG_PRIORITY" \
+            --direction Inbound \
+            --access Allow \
+            --protocol Tcp \
+            --source-address-prefixes "$RUNNER_IP/32" \
+            --source-port-ranges '*' \
+            --destination-address-prefixes '*' \
+            --destination-port-ranges 22 \
+            --output none
+
+      - name: Wait for SSH access
+        run: |
+          for attempt in $(seq 1 18); do
+            if ssh deploy-vm 'true'; then
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "SSH connection failed"
+          exit 1
+
+      - name: Upload source
+        run: |
+          git archive --format=tar.gz \
+            --output="$RUNNER_TEMP/source.tar.gz" HEAD
+
+          ssh deploy-vm \
+            'mkdir -p ~/image-collector/releases && chmod 700 ~/image-collector'
+
+          scp "$RUNNER_TEMP/source.tar.gz" \
+            deploy-vm:~/image-collector/source.tar.gz
+
+      - name: Upload application secrets
+        env:
+          APP_SECRETS_JSON: ${{ secrets.APP_SECRETS_JSON }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          data = json.loads(os.environ["APP_SECRETS_JSON"])
+          if not isinstance(data, dict):
+              raise ValueError("APP_SECRETS_JSON must be a JSON object")
+          PY
+
+          printf '%s' "$APP_SECRETS_JSON" |
+            ssh deploy-vm \
+              'umask 077; cat > ~/image-collector/secrets.json'
+
+      - name: Build and deploy
+        run: |
+          ssh deploy-vm bash -s -- "$GITHUB_SHA" <<'REMOTE'
+          set -euo pipefail
+
+          RELEASE="$HOME/image-collector/releases/$1"
+          mkdir -p "$RELEASE"
+
+          tar -xzf "$HOME/image-collector/source.tar.gz" \
+            -C "$RELEASE"
+
+          cd "$RELEASE"
+
+          cp "$HOME/image-collector/secrets.json" ./secrets.json
+          chmod 600 ./secrets.json
+
+          sudo -n docker compose -p image-collector config --quiet
+
+          sudo -n docker build -t image-collector:local .
+
+          sudo -n docker compose -p image-collector up \
+            -d --wait --wait-timeout 180 kafka redis mongodb
+
+          sudo -n docker compose -p image-collector exec -T kafka \
+            /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server kafka:29092 \
+            --create \
+            --if-not-exists \
+            --topic crawl-jobs \
+            --partitions 2 \
+            --replication-factor 1
+
+          sudo -n docker compose -p image-collector up \
+            -d --no-deps --force-recreate --scale worker=2 api worker
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/openapi.json \
+              > /dev/null; then
+              sudo -n docker compose -p image-collector ps
+              echo "API startup check passed"
+              exit 0
+            fi
+            sleep 3
+          done
+
+          echo "API startup check failed"
+          sudo -n docker compose -p image-collector ps
+          exit 1
+          REMOTE
+
+      - name: Remove runner SSH access
+        if: always() && steps.azure-login.outcome == 'success'
+        run: |
+          az network nsg rule delete \
+            --resource-group "$RESOURCE_GROUP" \
+            --nsg-name "$NSG_NAME" \
+            --name "$NSG_RULE" \
+            --output none
